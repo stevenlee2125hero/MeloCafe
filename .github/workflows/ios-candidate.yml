@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   ios:
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -14,12 +14,6 @@ jobs:
       - name: Record toolchain
         run: |
           mkdir -p logs
-          for candidate in /Applications/Xcode_26*.app; do
-            if [ -d "$candidate" ]; then
-              sudo xcode-select -s "$candidate/Contents/Developer"
-              break
-            fi
-          done
           xcodebuild -version | tee logs/toolchain.txt
           xcrun --sdk iphoneos --show-sdk-version | tee -a logs/toolchain.txt
       - name: Bootstrap pinned dependencies
