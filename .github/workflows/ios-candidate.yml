@@ -1,0 +1,58 @@
+name: iOS candidate build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Record toolchain
+        run: |
+          mkdir -p logs
+          xcodebuild -version | tee logs/toolchain.txt
+          xcrun --sdk iphoneos --show-sdk-version | tee -a logs/toolchain.txt
+      - name: Bootstrap pinned dependencies
+        run: bash dependencies/vcpkg/bootstrap-vcpkg.sh
+      - name: Generate original core project
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S . -B build -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_HEADLESS_DYLIB=ON -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/configure.txt
+      - name: Build original app scheme without signing
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project MeloCafe/MeloCafe.xcodeproj -scheme MeloCafe -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath out -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee logs/build.txt
+      - name: Verify actual app before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=out/Build/Products/Release-iphoneos/MeloCafe.app
+          test -d "$app"
+          plutil -lint "$app/Info.plist"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist")
+          test -s "$app/$executable"
+          file "$app/$executable" | tee logs/executable.txt
+          file "$app/$executable" | grep -q arm64
+          codesign -dv "$app" > logs/signature.txt 2>&1 || true
+          mkdir -p package/Payload
+          cp -R "$app" package/Payload/
+          cd package
+          zip -qry ../MeloCafe-1.0-candidate-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-build-logs
+          path: logs
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: MeloCafe-1.0-candidate-unsigned
+          path: MeloCafe-1.0-candidate-unsigned.ipa
+          if-no-files-found: error

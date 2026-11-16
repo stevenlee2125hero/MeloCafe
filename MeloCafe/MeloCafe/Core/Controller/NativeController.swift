@@ -8,12 +8,12 @@
 import Foundation
 import GameController
 import CoreHaptics
+import UIKit
 
 final class NativeController {
     let gc: GCController
     private(set) var coreHandle: UnsafeMutableRawPointer?
-    private var hapticEngine: CHHapticEngine?
-    private var hapticPlayer: CHHapticAdvancedPatternPlayer?
+    nonisolated private let rumbleOutput: RumbleOutput
     nonisolated(unsafe) private var attachmentGeneration: UInt64 = 0
     
     nonisolated private let stateLock = NSLock()
@@ -25,8 +25,9 @@ final class NativeController {
     
     init(gc: GCController) {
         self.gc = gc
+        rumbleOutput = RumbleOutput(gc: gc)
         gc.handlerQueue = .main
-        setupHaptics()
+
     }
     
     deinit {
@@ -58,7 +59,7 @@ final class NativeController {
         coreHandle = nil
         if let handle { GCControllerBridge_remove(handle) }
         
-        stopHaptic()
+        rumbleOutput.detach()
     }
     
     public func registerWithCore(_ controllerType: ControllerType) {
@@ -90,9 +91,8 @@ final class NativeController {
         if gc.motion?.hasRotationRate == true {
             desc.poll_motion = { ctx in NativeController.pollMotion(ctx) }
         }
-        if gc.haptics != nil {
-            desc.rumble = { ctx, start in NativeController.rumble(ctx, start) }
-        }
+        rumbleOutput.attach(active: UIApplication.shared.applicationState == .active)
+        desc.rumble = { ctx, start in NativeController.rumble(ctx, start) }
         
         desc.release = { ctx in
             Unmanaged<NativeController>.fromOpaque(ctx!).release()
@@ -144,20 +144,7 @@ final class NativeController {
     ) {
         let me = Unmanaged<NativeController>.fromOpaque(ctx!).takeUnretainedValue()
         
-        me.stateLock.lock()
-        let generation = me.attachmentGeneration
-        me.stateLock.unlock()
-        
-        Task { @MainActor in
-            guard me.coreHandle != nil, me.attachmentGeneration == generation,
-                  me.hapticEngine != nil else { return }
-            
-            if start {
-                me.startHaptic()
-            } else {
-                me.stopHaptic()
-            }
-        }
+        me.rumbleOutput.set(start)
     }
     
     private func updateState(from pad: GCExtendedGamepad) {
@@ -220,46 +207,119 @@ final class NativeController {
         motionLock.unlock()
     }
     
-    private func setupHaptics() {
-        guard let engine = gc.haptics?.createEngine(withLocality: .default) else { return }
-        engine.resetHandler = { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.hapticPlayer = nil
-                try? self.hapticEngine?.start()
+}
+
+// All engine/player state belongs to this serial queue. Core callbacks only enqueue.
+private final class RumbleOutput: @unchecked Sendable {
+    nonisolated private let queue = DispatchQueue(label: "MeloCafe.rumble", qos: .userInitiated)
+    nonisolated private let gc: GCController
+    nonisolated(unsafe) private var attached = false
+    nonisolated(unsafe) private var active = false
+    nonisolated(unsafe) private var requested = false
+    nonisolated(unsafe) private var engines: [CHHapticEngine?] = [nil, nil]
+    nonisolated(unsafe) private var players: [CHHapticAdvancedPatternPlayer?] = [nil, nil]
+    nonisolated(unsafe) private var failed = [false, false]
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    nonisolated init(gc: GCController) {
+        self.gc = gc
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: nil
+        ) { [weak self] _ in self?.suspend() })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.queue.async { [weak self] in self?.active = true }
+        })
+    }
+
+    deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
+
+    nonisolated func attach(active isActive: Bool) {
+        queue.async { [self] in attached = true; active = isActive; failed = [false, false] }
+    }
+
+    nonisolated func detach() {
+        queue.async { [self] in
+            attached = false
+            requested = false
+            stop()
+        }
+    }
+
+    nonisolated func suspend() {
+        queue.async { [self] in
+            active = false
+            requested = false
+            stop()
+        }
+    }
+
+    nonisolated func set(_ start: Bool) {
+        queue.async { [self] in
+            guard attached else { return }
+            guard start else { requested = false; stop(); return }
+            guard active, !requested else { return }
+            requested = true
+            // Failures are isolated by output; no retry loop on the emulator thread.
+            for index in 0..<2 where !failed[index] {
+                do {
+                    if engines[index] == nil {
+                        if index == 0 {
+                            if let haptics = gc.haptics {
+                                engines[index] = haptics.createEngine(withLocality: .all)
+                                    ?? haptics.createEngine(withLocality: .default)
+                            }
+                        } else if CHHapticEngine.capabilitiesForHardware().supportsHaptics {
+                            engines[index] = try CHHapticEngine()
+                            engines[index]?.playsHapticsOnly = true
+                        }
+                        guard let engine = engines[index] else {
+                            failed[index] = true
+                            NSLog("Rumble output %d unavailable", index)
+                            continue
+                        }
+                        engine.resetHandler = { [weak self] in self?.invalidate(index) }
+                        engine.stoppedHandler = { [weak self] _ in self?.invalidate(index) }
+                    }
+                    guard let engine = engines[index] else { continue }
+                    try engine.start()
+                    let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                        CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)
+                    ], relativeTime: 0, duration: 1)
+                    let pattern = try CHHapticPattern(events: [event], parameters: [])
+                    let player = try engine.makeAdvancedPlayer(with: pattern)
+                    player.loopEnabled = true
+                    players[index] = player
+                    try player.start(atTime: CHHapticTimeImmediate)
+                } catch {
+                    failed[index] = true
+                    NSLog("Rumble output %d start failed: %@", index, String(describing: error))
+                    stop(index)
+                }
             }
         }
-        
-        try? engine.start()
-        hapticEngine = engine
     }
-    
-    private func startHaptic() {
-        guard let engine = hapticEngine else { return }
-        
-        try? hapticPlayer?.stop(atTime: CHHapticTimeImmediate)
-        hapticPlayer = nil
-        
-        let params: [CHHapticEventParameter] = [
-            .init(parameterID: .hapticIntensity, value: 1.0),
-            .init(parameterID: .hapticSharpness, value: 0.5),
-        ]
-        
-        let event = CHHapticEvent(eventType: .hapticContinuous,
-                                  parameters: params,
-                                  relativeTime: 0,
-                                  duration: 1.0)
-        
-        guard let pattern = try? CHHapticPattern(events: [event], parameters: []),
-              let player  = try? engine.makeAdvancedPlayer(with: pattern) else { return }
-        
-        player.loopEnabled = true
-        try? player.start(atTime: CHHapticTimeImmediate)
-        hapticPlayer = player
+
+    nonisolated private func invalidate(_ index: Int) {
+        queue.async { [self] in
+            // Never replay an old rumble after an interruption/reset.
+            stop(index)
+            engines[index] = nil
+            failed[index] = true
+        }
     }
-    
-    private func stopHaptic() {
-        try? hapticPlayer?.stop(atTime: CHHapticTimeImmediate)
-        hapticPlayer = nil
+
+    nonisolated private func stop() { for index in 0..<2 { stop(index) } }
+
+    nonisolated private func stop(_ index: Int) {
+        do { try players[index]?.stop(atTime: CHHapticTimeImmediate) }
+        catch {
+            NSLog("Rumble output %d stop failed: %@", index, String(describing: error))
+            engines[index]?.stop(completionHandler: nil)
+            failed[index] = true
+        }
+        players[index] = nil
     }
 }
