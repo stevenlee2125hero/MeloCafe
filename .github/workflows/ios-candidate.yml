@@ -14,6 +14,12 @@ jobs:
       - name: Record toolchain
         run: |
           mkdir -p logs
+          for candidate in /Applications/Xcode_26*.app; do
+            if [ -d "$candidate" ]; then
+              sudo xcode-select -s "$candidate/Contents/Developer"
+              break
+            fi
+          done
           xcodebuild -version | tee logs/toolchain.txt
           xcrun --sdk iphoneos --show-sdk-version | tee -a logs/toolchain.txt
       - name: Bootstrap pinned dependencies
@@ -22,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cmake -S . -B build -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_HEADLESS_DYLIB=ON -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/configure.txt
+          cmake -S . -B build -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_HEADLESS_DYLIB=ON -DCMAKE_MACOSX_BUNDLE=OFF -DMOLTENVK_LIBRARY="$GITHUB_WORKSPACE/MeloCafe/MeloCafe/Depedencies/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK" -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/configure.txt
       - name: Build original app scheme without signing
         shell: bash
         run: |
