@@ -14,6 +14,8 @@
 #include "util/Fiber/Fiber.h"
 
 #include "util/helpers/helpers.h"
+#include <condition_variable>
+#include <chrono>
 
 #ifdef __arm64__
 #if defined(__clang__)
@@ -65,6 +67,31 @@ namespace coreinit
 {
 	// scheduler state
 	std::atomic<bool> sSchedulerActive;
+	static std::atomic<bool> sEmulationPaused{false};
+	static std::mutex sPauseMutex;
+	static std::condition_variable sPauseCV;
+
+	void OSSetEmulationPaused(bool paused)
+	{
+		sEmulationPaused.store(paused, std::memory_order_release);
+		if (!paused) sPauseCV.notify_all();
+	}
+
+	bool OSIsEmulationPaused()
+	{
+		return sEmulationPaused.load(std::memory_order_acquire);
+	}
+
+	static void OSWaitWhileEmulationPaused()
+	{
+		if (!OSIsEmulationPaused()) return;
+		std::unique_lock lock(sPauseMutex);
+		sPauseCV.wait(lock, [] {
+			return !sEmulationPaused.load(std::memory_order_acquire) ||
+			       !sSchedulerActive.load(std::memory_order_acquire);
+		});
+	}
+
 	std::vector<std::thread> sSchedulerThreads;
 	std::mutex sSchedulerStateMtx;
 
@@ -1255,6 +1282,9 @@ namespace coreinit
 		__OSUnlockScheduler();
 		while (true)
 		{
+			OSWaitWhileEmulationPaused();
+			if (!sSchedulerActive.load(std::memory_order_acquire))
+				Fiber::Switch(*t_schedulerFiber);
 			if (!g_coreRunQueueThreadCount[coreIndex].isZero()) // avoid hammering the lock on the main core if there is no runable thread
 			{
 				__OSLockScheduler();
@@ -1356,6 +1386,9 @@ namespace coreinit
 		__OSUnlockScheduler(); // lock is always held when switching to a fiber, so we need to unlock it here
 		while (true)
 		{
+            // Cooperative pause at a PPC timeslice boundary; never park
+            // while holding the scheduler lock or inside generated JIT code.
+            OSWaitWhileEmulationPaused();
             if (hCPU->remainingCycles > 0)
                 attemptEnterThread(hCPU);
             
@@ -1450,6 +1483,8 @@ namespace coreinit
 	{
 		std::unique_lock _lock(sSchedulerStateMtx);
 		sSchedulerActive.store(false);
+		sEmulationPaused.store(false, std::memory_order_release);
+		sPauseCV.notify_all();
 		for (size_t i = 0; i < Espresso::CORE_COUNT; i++)
 			g_coreRunQueueThreadCount[i].increment(); // make sure to wake up cores if they are paused and waiting for runnable threads
 		// wait for threads to stop execution
