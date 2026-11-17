@@ -70,6 +70,7 @@ struct SettingsView: View {
     @AppStorage("breakpoint") var stikDebugbreakpoint = false
     
     @AppStorage("showSwapButton") var showSwapButton: Bool = true
+    @AppStorage("showGameMenu") var showGameMenu: Bool = true
     @AppStorage("screenLayout") private var screenLayout = ScreenLayout.initialValue
     
     @State private var showingEmulatedDevices = false
@@ -145,6 +146,7 @@ struct SettingsView: View {
                         Toggle("Show Swap Button (TV <-> Pad)", isOn: $showSwapButton)
                     }
                     
+                    Toggle("Show In-Game Menu", isOn: $showGameMenu)
                     Toggle("Disable Screensaver", isOn: configManager.disableScreensaver)
                     Toggle("Play Boot Sound", isOn: configManager.playBootSound)
                 }
