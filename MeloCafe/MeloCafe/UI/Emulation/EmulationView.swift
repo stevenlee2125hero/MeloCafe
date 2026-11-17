@@ -17,6 +17,11 @@ struct EmulationView: View {
     @AppStorage("screenLayout") private var screenLayout = ScreenLayout.initialValue
     @State private var swapped = false
     @State private var showingEmulatedDevices = false
+    @State private var showPauseButton = false
+    @State private var pauseButtonHideGeneration = 0
+    @State private var pausedByOurButton = false
+    @State private var pausedOnBackground = false
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var air = Air.shared
     @Environment(\.verticalSizeClass) var verticalSizeClass
@@ -66,6 +71,35 @@ struct EmulationView: View {
                 .padding(10)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            // A small reveal target avoids stealing touches from the Wii U screen.
+            VStack(spacing: 8) {
+                if showPauseButton {
+                    Button {
+                        togglePause()
+                    } label: {
+                        Image(systemName: pausedByOurButton ? "play.fill" : "pause.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.black.opacity(0.65), in: Circle())
+                    }
+                    .accessibilityLabel(pausedByOurButton ? "Resume game" : "Pause game")
+                }
+                Button {
+                    showPauseButton = true
+                    scheduleHidePauseButton()
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 28)
+                        .background(.black.opacity(0.35), in: Capsule())
+                }
+                .accessibilityLabel("Show pause button")
+            }
+            .padding(12)
+        }
         .statusBarHidden(true)
         .overlay(alignment: .topTrailing) {
             if configManager.emulateSkylanderPortal.wrappedValue ||
@@ -94,12 +128,50 @@ struct EmulationView: View {
         .onChange(of: swapped) { _ in updateVisibleOutputs() }
         .onChange(of: screenLayout) { _ in updateVisibleOutputs() }
         .onChange(of: air.connected) { _ in updateVisibleOutputs() }
+        .onChange(of: scenePhase) { phase in
+            // Send START while the emulation thread is still active. Never
+            // auto-resume when foregrounded; the user resumes explicitly.
+            if phase == .inactive && !pausedByOurButton &&
+               controllerManager.virtualController.attached {
+                pulseStart()
+                pausedByOurButton = true
+                pausedOnBackground = true
+                showPauseButton = true
+                pauseButtonHideGeneration += 1
+            }
+        }
         .onDisappear {
             Air.stop()
             CemuUIKit_SetVisibleOutputs(false, false)
         }
     }
     
+    private func pulseStart() {
+        let virtual = controllerManager.virtualController
+        guard virtual.attached else { return }
+        virtual.pressButton(.start)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            virtual.releaseButton(.start)
+        }
+    }
+
+    private func togglePause() {
+        guard controllerManager.virtualController.attached else { return }
+        pulseStart()
+        pausedByOurButton.toggle()
+        pausedOnBackground = false
+        if !pausedByOurButton { scheduleHidePauseButton() }
+    }
+
+    private func scheduleHidePauseButton() {
+        pauseButtonHideGeneration += 1
+        let generation = pauseButtonHideGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard pauseButtonHideGeneration == generation, !pausedByOurButton else { return }
+            showPauseButton = false
+        }
+    }
+
     private var screens: some View {
         ForEach(visibleScreens, id: \.self) { main in
             MetalViewContainer(metalView: main ? cemuView : cemuPadView)
