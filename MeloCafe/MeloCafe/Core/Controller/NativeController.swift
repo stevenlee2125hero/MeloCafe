@@ -226,10 +226,21 @@ private final class RumbleOutput: @unchecked Sendable {
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification, object: nil, queue: nil
         ) { [weak self] _ in self?.suspend() })
+        // A resignation is not guaranteed to be the last lifecycle event before
+        // suspension or termination. Both paths must cancel a pending rumble.
+        for name in [UIApplication.didEnterBackgroundNotification,
+                     UIApplication.willTerminateNotification] {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: nil
+            ) { [weak self] _ in self?.suspend() })
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            self?.queue.async { [weak self] in self?.active = true }
+            self?.queue.async { [weak self] in
+                guard let self, self.attached else { return }
+                self.active = true
+            }
         })
     }
 
