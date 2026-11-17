@@ -29,6 +29,8 @@ class VirtualControllerHandler: Melo_Controller.Controller {
 
 final class VirtualController {
     private(set) var coreHandle: UnsafeMutableRawPointer?
+    // The virtual VPAD receives Cemu rumble too; send it to the iPhone haptic engine.
+    nonisolated private let rumbleOutput = RumbleOutput(gc: nil)
     
     private var pressedButtons: Set<VirtualControllerButton> = []
     private var leftThumbstick:  CGPoint = .zero
@@ -61,6 +63,7 @@ final class VirtualController {
         let handle = coreHandle
         coreHandle = nil
         if let handle { GCControllerBridge_remove(handle) }
+        rumbleOutput.detach()
         pressedButtons.removeAll()
         leftThumbstick = .zero
         rightThumbstick = .zero
@@ -103,7 +106,12 @@ final class VirtualController {
             }
         }
         
-        desc.rumble = nil
+        rumbleOutput.attach(active: UIApplication.shared.applicationState == .active)
+        desc.rumble = { ctx, start in
+            guard let ctx else { return }
+            let me = Unmanaged<VirtualController>.fromOpaque(ctx).takeUnretainedValue()
+            me.rumbleOutput.set(start)
+        }
         
         desc.release = { ctx in
             Unmanaged<VirtualController>.fromOpaque(ctx!).release()
