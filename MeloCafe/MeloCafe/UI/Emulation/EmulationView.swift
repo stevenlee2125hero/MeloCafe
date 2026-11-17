@@ -22,6 +22,7 @@ struct EmulationView: View {
     @State private var pauseButtonHideGeneration = 0
     @State private var pausedByOurButton = false
     @State private var pausedByBackground = false
+    @State private var hasEnteredForeground = false
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var air = Air.shared
@@ -73,7 +74,7 @@ struct EmulationView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            // A small reveal target avoids stealing touches from the Wii U screen.
+            // Controls are revealed by tapping anywhere on the game screen.
             VStack(spacing: 8) {
                 if showPauseButton {
                     Button {
@@ -87,16 +88,6 @@ struct EmulationView: View {
                     }
                     .accessibilityLabel(pausedByOurButton ? "Resume game" : "Pause game")
                 }
-                Button {
-                    showPauseButton = true
-                    scheduleHidePauseButton()
-                } label: {
-                    // Keep the tap target, but do not cover the game with a
-                    // permanently visible ellipsis.
-                    Color.clear.frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Show game controls")
             }
             .padding(12)
         }
@@ -158,8 +149,11 @@ struct EmulationView: View {
             }
         }
         .onAppear {
-            CemuSetEmulationPaused(scenePhase != .active)
-            pausedByBackground = scenePhase != .active
+            // Never suspend Cemu while the game view is still launching.
+            // SwiftUI may initially report .inactive before the first .active.
+            CemuSetEmulationPaused(false)
+            pausedByBackground = false
+            hasEnteredForeground = scenePhase == .active
             updateVisibleOutputs()
             Air.play(AnyView(MetalViewContainer(metalView: cemuView)))
         }
@@ -170,10 +164,12 @@ struct EmulationView: View {
             // Background audio must stop independently of the game's START key.
             // Do not toggle START here: that may open a menu or resume the game.
             if phase == .active {
-                // Preserve a user-requested pause when returning to the app.
+                hasEnteredForeground = true
                 pausedByBackground = false
                 CemuSetEmulationPaused(pausedByOurButton)
-            } else {
+            } else if phase == .background && hasEnteredForeground {
+                // Do not pause on transient .inactive (e.g. control center,
+                // initial launch, JIT attachment, or permission prompts).
                 pausedByBackground = true
                 CemuSetEmulationPaused(true)
                 showPauseButton = false
@@ -181,6 +177,8 @@ struct EmulationView: View {
             }
         }
         .onDisappear {
+            // Avoid leaking the pause flag into the next game launch.
+            CemuSetEmulationPaused(false)
             Air.stop()
             CemuUIKit_SetVisibleOutputs(false, false)
         }
@@ -207,6 +205,13 @@ struct EmulationView: View {
         ForEach(visibleScreens, id: \.self) { main in
             MetalViewContainer(metalView: main ? cemuView : cemuPadView)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        showPauseButton = true
+                        scheduleHidePauseButton()
+                    }
+                )
         }
     }
     
