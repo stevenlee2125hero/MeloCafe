@@ -20,7 +20,6 @@ struct EmulationView: View {
     @State private var showPauseButton = false
     @State private var pauseButtonHideGeneration = 0
     @State private var pausedByOurButton = false
-    @State private var pausedOnBackground = false
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var air = Air.shared
@@ -135,7 +134,6 @@ struct EmulationView: View {
                controllerManager.virtualController.attached {
                 pulseStart()
                 pausedByOurButton = true
-                pausedOnBackground = true
                 showPauseButton = true
                 pauseButtonHideGeneration += 1
             }
@@ -159,7 +157,6 @@ struct EmulationView: View {
         guard controllerManager.virtualController.attached else { return }
         pulseStart()
         pausedByOurButton.toggle()
-        pausedOnBackground = false
         if !pausedByOurButton { scheduleHidePauseButton() }
     }
 
