@@ -268,6 +268,7 @@ final class RumbleOutput: @unchecked Sendable {
 
     nonisolated func set(_ start: Bool) {
         queue.async { [self] in
+            NSLog("[MeloCafeRumble] output event start=%d attached=%d active=%d requested=%d controllerHaptics=%d deviceHaptics=%d", start ? 1 : 0, attached ? 1 : 0, active ? 1 : 0, requested ? 1 : 0, gc?.haptics != nil ? 1 : 0, CHHapticEngine.capabilitiesForHardware().supportsHaptics ? 1 : 0)
             guard attached else { return }
             guard start else { requested = false; stop(); return }
             guard active, !requested else { return }
@@ -310,6 +311,7 @@ final class RumbleOutput: @unchecked Sendable {
                     player.loopEnabled = true
                     players[index] = player
                     try player.start(atTime: CHHapticTimeImmediate)
+                    NSLog("[MeloCafeRumble] output %d started", index)
                 } catch {
                     failed[index] = true
                     NSLog("Rumble output %d start failed: %@", index, String(describing: error))
