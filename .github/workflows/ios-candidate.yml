@@ -69,6 +69,47 @@ jobs:
           cp -R "$app" package/Payload/
           cd package
           zip -qry ../MeloCafe-1.0-candidate-unsigned.ipa Payload
+      - name: Compare unsigned candidate with official 1.0 release
+        if: success()
+        shell: bash
+        run: |
+          # Comparison only; never copy official frameworks into the candidate.
+          set -uo pipefail
+          mkdir -p logs
+          python3 - <<'PY' > logs/official-comparison.txt 2>&1
+          import hashlib, io, plistlib, urllib.request, zipfile
+          official_url = "https://github.com/stossy11/MeloCafe/releases/download/1.0/MeloCafe.ipa"
+          candidate_path = "MeloCafe-1.0-candidate-unsigned.ipa"
+          def summarize(label, archive):
+              apps = [n for n in archive.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist") and n.count("/") == 2]
+              if len(apps) != 1:
+                  print(label, "unexpected app Info.plist count:", len(apps))
+                  return
+              prefix = apps[0][:-len("Info.plist")]
+              info = plistlib.loads(archive.read(apps[0]))
+              print("\n==", label, "==")
+              for key in ("CFBundleIdentifier", "CFBundleExecutable", "CFBundleDisplayName", "MinimumOSVersion"):
+                  print(key, repr(info.get(key)))
+              exe = prefix + str(info.get("CFBundleExecutable", ""))
+              if exe in archive.namelist():
+                  data = archive.read(exe)
+                  print("main executable size", len(data), "SHA256", hashlib.sha256(data).hexdigest())
+              for n in sorted(archive.namelist()):
+                  if n.startswith(prefix + "Frameworks/") and n.endswith(".framework/Info.plist"):
+                      print("framework plist", n[len(prefix):])
+              print("embedded.mobileprovision", prefix + "embedded.mobileprovision" in archive.namelist())
+          with zipfile.ZipFile(candidate_path) as z:
+              summarize("unsigned candidate", z)
+          try:
+              request = urllib.request.Request(official_url, headers={"User-Agent": "MeloCafe-build-diagnostics"})
+              with urllib.request.urlopen(request, timeout=90) as response:
+                  payload = response.read()
+              print("official IPA size", len(payload), "SHA256", hashlib.sha256(payload).hexdigest())
+              with zipfile.ZipFile(io.BytesIO(payload)) as z:
+                  summarize("official release 1.0", z)
+          except Exception as exc:
+              print("Official comparison unavailable:", type(exc).__name__, str(exc))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
