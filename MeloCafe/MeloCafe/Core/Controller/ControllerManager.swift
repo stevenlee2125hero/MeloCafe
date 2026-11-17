@@ -65,7 +65,7 @@ final class ControllerManager: ObservableObject {
         
         allControllers.append(ControllerEntry(
             id: virtualControllerID, name: "MeloCafe Virtual Controller",
-            isVirtual: true, hasMotion: true, hasRumble: false
+            isVirtual: true, hasMotion: true, hasRumble: true
         ))
         
         for gc in GCController.controllers() { addNative(gc) }
