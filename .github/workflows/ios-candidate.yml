@@ -44,6 +44,26 @@ jobs:
           test -s "$app/$executable"
           file "$app/$executable" | tee logs/executable.txt
           file "$app/$executable" | grep -q arm64
+          # Diagnostic manifest only: compare the unsigned candidate against
+          # the official 1.0 release without modifying runtime binaries.
+          {
+            echo "=== Commit and toolchain ==="
+            git rev-parse HEAD
+            xcodebuild -version
+            echo "=== App identity ==="
+            /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$app/Info.plist" || true
+            echo "=== App binary SHA256 ==="
+            shasum -a 256 "$app/$executable"
+            echo "=== Embedded executable/framework hashes ==="
+            find "$app/Frameworks" -type f \( -perm -111 -o -name '*.dylib' \) -print0 2>/dev/null | sort -z | xargs -0 shasum -a 256 || true
+            echo "=== App Info.plist ==="
+            plutil -p "$app/Info.plist"
+            echo "=== Provisioning and signature ==="
+            if test -f "$app/embedded.mobileprovision"; then echo "Embedded profile present"; else echo "No embedded profile"; fi
+            codesign -d --entitlements :- "$app" 2>&1 || true
+          } > logs/candidate-manifest.txt 2>&1
           codesign -dv "$app" > logs/signature.txt 2>&1 || true
           mkdir -p package/Payload
           cp -R "$app" package/Payload/
