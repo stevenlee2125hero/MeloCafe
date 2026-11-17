@@ -351,6 +351,8 @@ std::vector<GameInfo> GetAllGames(bool includeUpdates = false, bool includeDLC =
 }
 
 
+namespace coreinit { void OSSetEmulationPaused(bool); bool OSIsEmulationPaused(); }
+
 extern "C"
 {
 
@@ -575,8 +577,6 @@ bool CemuInitJIT() {
     return PPCRecompiler_Init26();
 }
 
-
-namespace coreinit { void OSSetEmulationPaused(bool); bool OSIsEmulationPaused(); }
 
 extern "C" void CemuIOS_SetAudioMuted(bool muted);
 
