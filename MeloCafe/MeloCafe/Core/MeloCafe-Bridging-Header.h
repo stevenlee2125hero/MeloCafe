@@ -67,6 +67,8 @@ unsigned long long CemuLoadFile(const char* launchPath, bool load);
 void CemuRun();
 
 void CemuShutdown();
+void CemuSetEmulationPaused(bool paused);
+bool CemuIsEmulationPaused();
 
 // Mutes the audio render callback without tearing down the audio unit.
 void CemuIOS_SetAudioMuted(bool muted);
