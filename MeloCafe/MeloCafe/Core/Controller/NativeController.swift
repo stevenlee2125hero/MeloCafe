@@ -210,9 +210,9 @@ final class NativeController {
 }
 
 // All engine/player state belongs to this serial queue. Core callbacks only enqueue.
-private final class RumbleOutput: @unchecked Sendable {
+final class RumbleOutput: @unchecked Sendable {
     nonisolated private let queue = DispatchQueue(label: "MeloCafe.rumble", qos: .userInitiated)
-    nonisolated private let gc: GCController
+    nonisolated private let gc: GCController?
     nonisolated(unsafe) private var attached = false
     nonisolated(unsafe) private var active = false
     nonisolated(unsafe) private var requested = false
@@ -221,7 +221,7 @@ private final class RumbleOutput: @unchecked Sendable {
     nonisolated(unsafe) private var failed = [false, false]
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
-    nonisolated init(gc: GCController) {
+    nonisolated init(gc: GCController?) {
         self.gc = gc
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification, object: nil, queue: nil
@@ -277,7 +277,7 @@ private final class RumbleOutput: @unchecked Sendable {
                 do {
                     if engines[index] == nil {
                         if index == 0 {
-                            if let haptics = gc.haptics {
+                            if let haptics = gc?.haptics {
                                 engines[index] = haptics.createEngine(withLocality: .all)
                                     ?? haptics.createEngine(withLocality: .default)
                             }
