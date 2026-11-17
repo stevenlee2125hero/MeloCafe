@@ -40,6 +40,9 @@ jobs:
           app=out/Build/Products/Release-iphoneos/MeloCafe.app
           test -d "$app"
           plutil -lint "$app/Info.plist"
+          # Reject accidental placeholder or unexpected app identity before publishing an IPA.
+          actual_bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          test "$actual_bundle_id" = "com.stossy11.MeloCafe" || { echo "::error::Unexpected CFBundleIdentifier: $actual_bundle_id"; exit 1; }
           executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist")
           test -s "$app/$executable"
           file "$app/$executable" | tee logs/executable.txt
