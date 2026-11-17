@@ -3,6 +3,7 @@
 #include "GCController.h"
 #include "GCControllerProvider.h"
 #include <cmath>
+#import <Foundation/Foundation.h>
 
 
 static constexpr int kBitA       = 0;
@@ -94,12 +95,14 @@ bool GCControllerDevice::has_rumble()
 void GCControllerDevice::start_rumble()
 {
     std::scoped_lock lock(m_mutex);
+    NSLog(@"[MeloCafeRumble] core start player=%lu callback=%d", (unsigned long)m_player_index, m_desc.rumble != nullptr);
     if (m_desc.rumble) m_desc.rumble(m_desc.context, true);
 }
 
 void GCControllerDevice::stop_rumble()
 {
     std::scoped_lock lock(m_mutex);
+    NSLog(@"[MeloCafeRumble] core stop player=%lu callback=%d", (unsigned long)m_player_index, m_desc.rumble != nullptr);
     if (m_desc.rumble) m_desc.rumble(m_desc.context, false);
 }
 
