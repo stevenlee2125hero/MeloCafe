@@ -313,7 +313,9 @@ private final class RumbleOutput: @unchecked Sendable {
                 } catch {
                     failed[index] = true
                     NSLog("Rumble output %d start failed: %@", index, String(describing: error))
-                    stop(index)
+                    // A failed output must not retain a running engine or player.
+                    // Tear down only this output; the other output remains usable.
+                    releaseOutput(index)
                 }
             }
         }
@@ -323,8 +325,7 @@ private final class RumbleOutput: @unchecked Sendable {
         queue.async { [self] in
             guard engines[index] === engine else { return }
             // Never replay an old rumble after an interruption/reset.
-            stop(index)
-            engines[index] = nil
+            releaseOutput(index)
             failed[index] = true
         }
     }
@@ -332,14 +333,18 @@ private final class RumbleOutput: @unchecked Sendable {
     // Tear down both output engines on disconnect/background. Invalidate identity
     // before stopping so delayed stoppedHandler callbacks cannot affect a new engine.
     nonisolated private func stopAndReleaseEngines() {
-        stop()
-        for index in 0..<2 {
-            let engine = engines[index]
-            engines[index] = nil
-            engine?.resetHandler = {}
-            engine?.stoppedHandler = { _ in }
-            engine?.stop(completionHandler: nil)
-        }
+        for index in 0..<2 { releaseOutput(index) }
+    }
+
+    // Called only on the serial output queue. Never tear down the healthy
+    // output when one controller/device haptic engine fails.
+    nonisolated private func releaseOutput(_ index: Int) {
+        stop(index)
+        let engine = engines[index]
+        engines[index] = nil
+        engine?.resetHandler = {}
+        engine?.stoppedHandler = { _ in }
+        engine?.stop(completionHandler: nil)
     }
 
     nonisolated private func stop() { for index in 0..<2 { stop(index) } }
