@@ -576,6 +576,21 @@ bool CemuInitJIT() {
 }
 
 
+namespace coreinit { void OSSetEmulationPaused(bool); bool OSIsEmulationPaused(); }
+
+extern "C" void CemuIOS_SetAudioMuted(bool muted);
+
+void CemuSetEmulationPaused(bool paused)
+{
+    coreinit::OSSetEmulationPaused(paused);
+    CemuIOS_SetAudioMuted(paused);
+}
+
+bool CemuIsEmulationPaused()
+{
+    return coreinit::OSIsEmulationPaused();
+}
+
 void CemuShutdown()
 {
     CafeSystem::Shutdown();
