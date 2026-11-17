@@ -68,6 +68,9 @@ void CemuRun();
 
 void CemuShutdown();
 
+// Mutes the audio render callback without tearing down the audio unit.
+void CemuIOS_SetAudioMuted(bool muted);
+
 GameInfo* CemuGetAllGames(bool includeUpdates, bool includeDLC, int* outCount);
 
 void CemuFreeGameList(GameInfo* list, int count);
