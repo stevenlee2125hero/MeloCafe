@@ -13,6 +13,12 @@
 #include "iOSDeviceDescription.h"
 #include "config/CemuConfig.h"
 #include <algorithm>
+#include <atomic>
+
+static std::atomic<bool> s_iosAudioMuted{false};
+extern "C" void CemuIOS_SetAudioMuted(bool muted) {
+    s_iosAudioMuted.store(muted, std::memory_order_relaxed);
+}
 #include <cstring>
 #import <AVFoundation/AVFoundation.h>
 
@@ -153,7 +159,7 @@ OSStatus IOSAudioAPI::RenderCallback(
     for (UInt32 i = 0; i < ioData->mNumberBuffers; ++i)
         std::memset(ioData->mBuffers[i].mData, 0, ioData->mBuffers[i].mDataByteSize);
     
-    if (!self->m_isPlaying)
+    if (!self->m_isPlaying || s_iosAudioMuted.load(std::memory_order_relaxed))
         return noErr;
     
     auto& outputBuffer = ioData->mBuffers[0];
