@@ -65,6 +65,19 @@ jobs:
             codesign -d --entitlements :- "$app" 2>&1 || true
           } > logs/candidate-manifest.txt 2>&1
           codesign -dv "$app" > logs/signature.txt 2>&1 || true
+          {
+            echo "=== Main executable load commands ==="
+            xcrun otool -l "$app/$executable" | grep -E '^[[:space:]]*(cmd |name |path |platform |minos |sdk )' || true
+            echo "=== Embedded framework binary load commands ==="
+            for framework in "$app"/Frameworks/*.framework; do
+              test -d "$framework" || continue
+              framework_name=$(basename "$framework" .framework)
+              framework_binary="$framework/$framework_name"
+              test -f "$framework_binary" || continue
+              echo "--- $framework_name ---"
+              xcrun otool -l "$framework_binary" | grep -E '^[[:space:]]*(cmd |name |path |platform |minos |sdk )' || true
+            done
+          } > logs/macho-load-commands.txt 2>&1
           mkdir -p package/Payload
           cp -R "$app" package/Payload/
           cd package
@@ -97,6 +110,20 @@ jobs:
               for n in sorted(archive.namelist()):
                   if n.startswith(prefix + "Frameworks/") and n.endswith(".framework/Info.plist"):
                       print("framework plist", n[len(prefix):])
+                      try:
+                          framework_info = plistlib.loads(archive.read(n))
+                          binary_name = framework_info.get("CFBundleExecutable")
+                          if binary_name:
+                              framework_binary = n[:-len("Info.plist")] + binary_name
+                              if framework_binary in archive.namelist():
+                                  binary_data = archive.read(framework_binary)
+                                  print("framework executable", framework_binary[len(prefix):],
+                                        "size", len(binary_data),
+                                        "SHA256", hashlib.sha256(binary_data).hexdigest())
+                              else:
+                                  print("framework executable missing", framework_binary[len(prefix):])
+                      except Exception as exc:
+                          print("framework inspection failed", n, type(exc).__name__, str(exc))
               print("embedded.mobileprovision", prefix + "embedded.mobileprovision" in archive.namelist())
           with zipfile.ZipFile(candidate_path) as z:
               summarize("unsigned candidate", z)
