@@ -572,8 +572,7 @@ void CemuRun()
 
 
 bool CemuInitJIT() {
-    PPCRecompiler_Init26();
-    return true;
+    return PPCRecompiler_Init26();
 }
 
 
