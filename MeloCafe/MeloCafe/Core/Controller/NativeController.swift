@@ -279,8 +279,14 @@ private final class RumbleOutput: @unchecked Sendable {
                             NSLog("Rumble output %d unavailable", index)
                             continue
                         }
-                        engine.resetHandler = { [weak self] in self?.invalidate(index) }
-                        engine.stoppedHandler = { [weak self] _ in self?.invalidate(index) }
+                        engine.resetHandler = { [weak self, weak engine] in
+                            guard let engine else { return }
+                            self?.invalidate(index, engine: engine)
+                        }
+                        engine.stoppedHandler = { [weak self, weak engine] _ in
+                            guard let engine else { return }
+                            self?.invalidate(index, engine: engine)
+                        }
                     }
                     guard let engine = engines[index] else { continue }
                     try engine.start()
@@ -302,8 +308,9 @@ private final class RumbleOutput: @unchecked Sendable {
         }
     }
 
-    nonisolated private func invalidate(_ index: Int) {
+    nonisolated private func invalidate(_ index: Int, engine: CHHapticEngine) {
         queue.async { [self] in
+            guard engines[index] === engine else { return }
             // Never replay an old rumble after an interruption/reset.
             stop(index)
             engines[index] = nil
