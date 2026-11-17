@@ -17,6 +17,10 @@ struct EmulationView: View {
     @AppStorage("screenLayout") private var screenLayout = ScreenLayout.initialValue
     @State private var swapped = false
     @State private var showingEmulatedDevices = false
+    @State private var showPauseControl = false
+    @State private var pauseControlGeneration = 0
+    @State private var pausedByOverlay = false
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var air = Air.shared
     @Environment(\.verticalSizeClass) var verticalSizeClass
@@ -66,6 +70,34 @@ struct EmulationView: View {
                 .padding(10)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            VStack(spacing: 8) {
+                if showPauseControl {
+                    Button {
+                        toggleGamePause()
+                    } label: {
+                        Image(systemName: pausedByOverlay ? "play.fill" : "pause.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.black.opacity(0.65), in: Circle())
+                    }
+                    .accessibilityLabel(pausedByOverlay ? "Resume game (START)" : "Pause game (START)")
+                }
+                Button {
+                    showPauseControl = true
+                    schedulePauseControlHide()
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 28)
+                        .background(.black.opacity(0.35), in: Capsule())
+                }
+                .accessibilityLabel("Show pause control")
+            }
+            .padding(12)
+        }
         .statusBarHidden(true)
         .overlay(alignment: .topTrailing) {
             if configManager.emulateSkylanderPortal.wrappedValue ||
@@ -94,12 +126,44 @@ struct EmulationView: View {
         .onChange(of: swapped) { _ in updateVisibleOutputs() }
         .onChange(of: screenLayout) { _ in updateVisibleOutputs() }
         .onChange(of: air.connected) { _ in updateVisibleOutputs() }
+        .onChange(of: scenePhase) { phase in
+            if phase == .inactive && !pausedByOverlay && controllerManager.virtualController.attached {
+                sendStartPulse()
+                pausedByOverlay = true
+                showPauseControl = true
+            }
+        }
         .onDisappear {
             Air.stop()
             CemuUIKit_SetVisibleOutputs(false, false)
         }
     }
     
+    private func sendStartPulse() {
+        let controller = controllerManager.virtualController
+        guard controller.attached else { return }
+        controller.pressButton(.start)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            controller.releaseButton(.start)
+        }
+    }
+
+    private func toggleGamePause() {
+        guard controllerManager.virtualController.attached else { return }
+        sendStartPulse()
+        pausedByOverlay.toggle()
+        if !pausedByOverlay { schedulePauseControlHide() }
+    }
+
+    private func schedulePauseControlHide() {
+        pauseControlGeneration += 1
+        let generation = pauseControlGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard pauseControlGeneration == generation, !pausedByOverlay else { return }
+            showPauseControl = false
+        }
+    }
+
     private var screens: some View {
         ForEach(visibleScreens, id: \.self) { main in
             MetalViewContainer(metalView: main ? cemuView : cemuPadView)
