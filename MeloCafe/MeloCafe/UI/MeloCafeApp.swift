@@ -117,8 +117,15 @@ class ContentHostingController: UIHostingController<AnyView> {
         setupMetalViews()
         setupControllers()
         
+        // Diagnostic only: retain the original initialization decision and
+        // record the real result. Never claim JIT is usable merely because
+        // StikDebug returned to the app.
         if CPUMode(cemuConfig.cpuMode) != .interpreter {
-            CemuInitJIT()
+            NSLog("MeloCafe JIT: initialization requested (CPU mode: %@)", String(describing: cemuConfig.cpuMode))
+            let initialized = CemuInitJIT()
+            NSLog("MeloCafe JIT: initialization result = %@", initialized ? "success" : "failure")
+        } else {
+            NSLog("MeloCafe JIT: initialization skipped (interpreter mode)")
         }
     }
     
