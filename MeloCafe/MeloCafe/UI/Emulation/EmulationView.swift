@@ -14,6 +14,7 @@ struct EmulationView: View {
     @StateObject private var controllerManager = ControllerManager.shared
     @StateObject private var controllerHandler = VirtualControllerHandler()
     @AppStorage("showSwapButton") private var showSwapButton = true
+    @AppStorage("showGameMenu") private var showGameMenu = true
     @AppStorage("screenLayout") private var screenLayout = ScreenLayout.initialValue
     @State private var swapped = false
     @State private var showingEmulatedDevices = false
@@ -98,6 +99,42 @@ struct EmulationView: View {
                 .accessibilityLabel("Show pause button")
             }
             .padding(12)
+        }
+        .overlay(alignment: .top) {
+            if showGameMenu {
+                Menu {
+                    if screenLayout == .singleScreen && !air.connected {
+                        Button {
+                            swapped.toggle()
+                        } label: {
+                            Label("Swap TV and GamePad", systemImage: "rectangle.2.swap")
+                        }
+                    }
+                    Button {
+                        showPauseButton = true
+                        scheduleHidePauseButton()
+                    } label: {
+                        Label("Show Pause Control", systemImage: "pause.circle")
+                    }
+                    if configManager.emulateSkylanderPortal.wrappedValue ||
+                       configManager.emulateInfinityBase.wrappedValue ||
+                       configManager.emulateDimensionsToypad.wrappedValue {
+                        Button {
+                            showingEmulatedDevices = true
+                        } label: {
+                            Label("Emulated Devices", systemImage: "externaldrive.connected.to.line.below")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 30)
+                        .background(.black.opacity(0.4), in: Capsule())
+                }
+                .accessibilityLabel("Game menu")
+                .padding(10)
+            }
         }
         .statusBarHidden(true)
         .overlay(alignment: .topTrailing) {
