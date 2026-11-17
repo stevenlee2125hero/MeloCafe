@@ -243,7 +243,7 @@ private final class RumbleOutput: @unchecked Sendable {
         queue.async { [self] in
             attached = false
             requested = false
-            stop()
+            stopAndReleaseEngines()
         }
     }
 
@@ -251,7 +251,7 @@ private final class RumbleOutput: @unchecked Sendable {
         queue.async { [self] in
             active = false
             requested = false
-            stop()
+            stopAndReleaseEngines()
         }
     }
 
@@ -315,6 +315,19 @@ private final class RumbleOutput: @unchecked Sendable {
             stop(index)
             engines[index] = nil
             failed[index] = true
+        }
+    }
+
+    // Tear down both output engines on disconnect/background. Invalidate identity
+    // before stopping so delayed stoppedHandler callbacks cannot affect a new engine.
+    nonisolated private func stopAndReleaseEngines() {
+        stop()
+        for index in 0..<2 {
+            let engine = engines[index]
+            engines[index] = nil
+            engine?.resetHandler = {}
+            engine?.stoppedHandler = { _ in }
+            engine?.stop(completionHandler: nil)
         }
     }
 
