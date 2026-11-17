@@ -90,13 +90,12 @@ struct EmulationView: View {
                     showPauseButton = true
                     scheduleHidePauseButton()
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 28)
-                        .background(.black.opacity(0.35), in: Capsule())
+                    // Keep the tap target, but do not cover the game with a
+                    // permanently visible ellipsis.
+                    Color.clear.frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Show pause button")
+                .accessibilityLabel("Show game controls")
             }
             .padding(12)
         }
@@ -158,6 +157,7 @@ struct EmulationView: View {
             }
         }
         .onAppear {
+            CemuIOS_SetAudioMuted(scenePhase != .active)
             updateVisibleOutputs()
             Air.play(AnyView(MetalViewContainer(metalView: cemuView)))
         }
@@ -165,13 +165,13 @@ struct EmulationView: View {
         .onChange(of: screenLayout) { _ in updateVisibleOutputs() }
         .onChange(of: air.connected) { _ in updateVisibleOutputs() }
         .onChange(of: scenePhase) { phase in
-            // Send START while the emulation thread is still active. Never
-            // auto-resume when foregrounded; the user resumes explicitly.
-            if phase == .inactive && !pausedByOurButton &&
-               controllerManager.virtualController.attached {
-                pulseStart()
-                pausedByOurButton = true
-                showPauseButton = true
+            // Background audio must stop independently of the game's START key.
+            // Do not toggle START here: that may open a menu or resume the game.
+            if phase == .active {
+                CemuIOS_SetAudioMuted(false)
+            } else {
+                CemuIOS_SetAudioMuted(true)
+                showPauseButton = false
                 pauseButtonHideGeneration += 1
             }
         }
