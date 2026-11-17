@@ -21,6 +21,7 @@ struct EmulationView: View {
     @State private var showPauseButton = false
     @State private var pauseButtonHideGeneration = 0
     @State private var pausedByOurButton = false
+    @State private var pausedByBackground = false
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var air = Air.shared
@@ -157,7 +158,8 @@ struct EmulationView: View {
             }
         }
         .onAppear {
-            CemuIOS_SetAudioMuted(scenePhase != .active)
+            CemuSetEmulationPaused(scenePhase != .active)
+            pausedByBackground = scenePhase != .active
             updateVisibleOutputs()
             Air.play(AnyView(MetalViewContainer(metalView: cemuView)))
         }
@@ -168,9 +170,12 @@ struct EmulationView: View {
             // Background audio must stop independently of the game's START key.
             // Do not toggle START here: that may open a menu or resume the game.
             if phase == .active {
-                CemuIOS_SetAudioMuted(false)
+                // Preserve a user-requested pause when returning to the app.
+                pausedByBackground = false
+                CemuSetEmulationPaused(pausedByOurButton)
             } else {
-                CemuIOS_SetAudioMuted(true)
+                pausedByBackground = true
+                CemuSetEmulationPaused(true)
                 showPauseButton = false
                 pauseButtonHideGeneration += 1
             }
@@ -181,19 +186,11 @@ struct EmulationView: View {
         }
     }
     
-    private func pulseStart() {
-        let virtual = controllerManager.virtualController
-        guard virtual.attached else { return }
-        virtual.pressButton(.start)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            virtual.releaseButton(.start)
-        }
-    }
-
     private func togglePause() {
-        guard controllerManager.virtualController.attached else { return }
-        pulseStart()
+        // Pause Cemu's PPC scheduler, not a virtual controller. This works
+        // regardless of whether a Joy-Con replaced the on-screen controls.
         pausedByOurButton.toggle()
+        CemuSetEmulationPaused(pausedByOurButton || pausedByBackground)
         if !pausedByOurButton { scheduleHidePauseButton() }
     }
 
